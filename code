@@ -1,0 +1,109 @@
+#include <WiFi.h>
+#include "ThingSpeak.h"
+#include "max6675.h"
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+const char* ssid = "Poco";  // Replace with your WiFi SSID
+const char* pass = "123456789000";  // Replace with your WiFi password
+int keyIndex = 0;
+WiFiClient client;
+
+int thermoCLK5 = 19;   // GPIO19 for CLK
+int thermoCS5 = 18;    // GPIO18 for CS
+int thermoSO5 = 5;     // GPIO5 for SO
+MAX6675 thermocouple5(thermoCLK5, thermoCS5, thermoSO5);
+
+int thermoCLK6 = 27;   // Change to an available GPIO pin for CLK
+int thermoCS6 = 26;    // Change to an available GPIO pin for CS
+int thermoSO6 = 25;    // Change to an available GPIO pin for SO
+MAX6675 thermocouple6(thermoCLK6, thermoCS6, thermoSO6);
+
+unsigned long myChannelNumber = 2240516; // Replace with your ThingSpeak channel number
+const char* myWriteAPIKey = "UB9EI7TQJJD1X1J6"; // Replace with your ThingSpeak write API key
+
+String myStatus = "";
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+unsigned long temperatureInterval = 5000; // Interval for temperature readings in milliseconds
+unsigned long displayInterval = 2000; // Interval for updating the OLED display in milliseconds
+
+unsigned long previousTemperatureMillis = 0;
+unsigned long previousDisplayMillis = 0;
+
+void setup()
+{
+  Serial.begin(9600);
+  Serial.println("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+  ThingSpeak.begin(client);
+
+  Wire.begin(); // Initialize I2C
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
+  }
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+}
+
+void loop()
+{
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousTemperatureMillis >= temperatureInterval)
+  {
+    previousTemperatureMillis = currentMillis;
+
+    float temperature5 = thermocouple5.readCelsius();
+    float temperature6 = thermocouple6.readCelsius();
+
+    ThingSpeak.setField(5, temperature5);
+    ThingSpeak.setField(6, temperature6);
+
+    Serial.print("Temperature 5: ");
+    Serial.println(temperature5);
+
+    Serial.print("Temperature 6: ");
+    Serial.println(temperature6);
+
+    ThingSpeak.setStatus(myStatus);
+
+    int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+    if (x == 200)
+    {
+      Serial.println("Channel update successful.");
+    }
+    else
+    {
+      Serial.println("Problem updating channel. HTTP error code " + String(x));
+    }
+  }
+
+  if (currentMillis - previousDisplayMillis >= displayInterval)
+  {
+    previousDisplayMillis = currentMillis;
+
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.println("Temp 5: " + String(thermocouple5.readCelsius()) + " C");
+    display.setCursor(0, 20);
+    display.println("Temp 6: " + String(thermocouple6.readCelsius()) + " C");
+    display.display();
+  }
+}
